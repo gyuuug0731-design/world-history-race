@@ -285,7 +285,7 @@ button{font-family:inherit;cursor:pointer;border:0}
   <div class="tbarTop">
     <h2>📺 세계사 레이스 — 교사 화면 <small style="font-size:13px;opacity:.7">(미리보기: 봇 28명)</small></h2>
     <div class="big" id="tTimer">0:00</div>
-    <div class="tabs" id="tTabs"><button data-v="time" class="on">📜 연표</button><button data-v="bar">📊 막대</button><button data-v="cam">🎥 중계</button></div><button class="g" id="tStart">▶ 시작</button>
+    <div class="tabs" id="tTabs"><button data-v="time" class="on">📜 연표</button><button data-v="bar">📊 막대</button><button data-v="cam">🎥 중계</button></div><button class="g" id="tStart">▶ 시작</button><button class="d" id="tEnd">🏁 종료</button>
     <button class="d" id="tReset">⏹ 초기화</button>
     <button class="d" id="tBack">← 나가기</button>
   </div>
@@ -346,7 +346,7 @@ function sfx(type){
   try{
     AC=AC||new(window.AudioContext||window.webkitAudioContext)();
     const seq={ok:[[660,.08],[880,.08],[1320,.16]],bad:[[220,.18],[150,.28]],jump:[[480,.05],[720,.07]],slide:[[300,.08]],hit:[[140,.16],[110,.16]],
-      item:[[900,.06],[1200,.06],[900,.06],[1500,.1]],tick:[[520,.09]],go:[[880,.35]],fin:[[523,.1],[659,.1],[784,.1],[1047,.35]],gate:[[400,.06],[600,.08]]}[type];
+      item:[[900,.06],[1200,.06],[900,.06],[1500,.1]],tick:[[520,.09]],go:[[880,.35]],fin:[[523,.1],[659,.1],[784,.1],[1047,.35]],gate:[[400,.06],[600,.08]],coin:[[1320,.04],[1760,.06]]}[type];
     if(!seq)return;
     let at=AC.currentTime;
     for(const [f,d] of seq){
@@ -384,30 +384,43 @@ function genZones(){
   return arr;
 }
 const zoneAt=m=>{for(const z of S.zones||[])if(m>=z.x0&&m<=z.x1)return z;return null;};
+/* 역사 유물 줍기: 편하게 달리는 구간에 5개씩 줄지어 놓음(옆 줄로 옮겨 가며 줍는 재미) */
+const RELIC_IC=['🏺','🏺','📜','🏮','👑','🧭','🧭','⚙️','🎖️'];
+function genRelics(){const rng=mulberry(4242),arr=[],busy=(x,l)=>S.obst.some(o=>o.l===l&&Math.abs(o.x-x)<4)||S.boxes.some(b=>b.l===l&&Math.abs(b.x-x)<3)||
+    (S.lg||[]).some(g=>x>g.x-16&&x<g.x+6)||(S.chal||[]).some(c=>x>c.x0&&x<c.x1)||(S.zones||[]).some(z=>x>z.x0-3&&x<z.x1+3);
+  for(let x=40;x<FINISH-30;){const l0=Math.floor(rng()*3),snake=rng()<.4,row=[];
+    for(let k=0;k<5;k++){const xx=x+k*3,l=snake?clamp(l0+(k>=3?(l0===2?-1:1):0),0,2):l0;if(busy(xx,l)||gateDist(Math.ceil(xx/CFG.spacing))-xx<6)break;row.push({x:xx,l,ic:RELIC_IC[eraOf(Math.min(CFG.gates,Math.ceil(xx/CFG.spacing)))-1]});}
+    if(row.length>=3){arr.push(...row);x+=row.length*3+18+rng()*14;}else x+=6;}
+  return arr;}
 function genObstacles(lg){
   const rng=mulberry(20261117),arr=[];lg=lg||[];
   const zones=S.zones||[];
   // 양자택일 문 바로 뒤(문에 가려 안 보이는 곳)와 문 바로 앞 6m, 이벤트 구간은 일반 장애물 없음
   const bad=(x0,x1)=>lg.some(g=>x1>g.x-14&&x0<g.x+18)||zones.some(z=>x1>z.x0-4&&x0<z.x1+4);
   const T=()=>rng()<.55?'g':'a';
+  // 장애물은 퀴즈 문 사이마다 '도전 구간' 한 곳(3~4개 연속)에 모으고, 나머지는 편하게 달리는 구간
+  S.chal=[];
   for(let k=1;k<=CFG.gates+1;k++){
-    const a=(k===1?60:gateDist(k-1)+28),b=(k<=CFG.gates?gateDist(k)-14:FINISH-40);
-    const dense=(k>=CFG.gates-1&&k<=CFG.gates),e=eraOf(Math.min(k,CFG.gates));
-    let x=a;
-    while(x<b){
+    const a=(k===1?50:gateDist(k-1)+28);let b=(k<=CFG.gates?gateDist(k)-14:FINISH-40);
+    const e=eraOf(Math.min(k,CFG.gates)),last=(k>=CFG.gates);
+    const want=e<=2?2:e<=4?3:(last?5:4);
+    // 도전 구간: 퀴즈 문을 지나 첫 양자택일 문 앞까지
+    const lgIn=lg.filter(g=>g.x>a&&g.x<b).map(g=>g.x);if(lgIn.length)b=Math.min(b,lgIn[0]-14);
+    let x=a,n=0;const c0=x;
+    while(n<want){
       const r0=rng(),l=Math.floor(rng()*3);let pat;
-      // 1~2시대: 한 개짜리만(연습), 3~4시대: 한 개+두 줄 막기, 5시대부터: 연속·지그재그까지
       const r=e<=2?0:e<=4?r0*.66:r0;
-      if(r<.38)pat=[[0,l,T()]];                                             // 한 개
-      else if(r<.66){const l2=(l+1+Math.floor(rng()*2))%3;pat=[[0,l,T()],[0,l2,T()]];}   // 두 줄 막고 한 줄 비움
-      else if(r<.86){const t1=T();pat=[[0,l,t1],[13,l,t1==='g'?'a':'g']];}   // 같은 줄 점프→슬라이드(또는 반대) 연속
-      else{const s1=rng()<.5?0:2;pat=[[0,s1,T()],[8,1,T()],[16,2-s1,T()]];}   // 지그재그
-      const len=Math.max(...pat.map(p=>p[0]));
-      if(x+len<b&&!bad(x,x+len))pat.forEach(p=>arr.push({x:x+p[0],l:p[1],type:p[2],era:e}));
-      x+=len+(dense?(11+rng()*8):e<=2?(26+rng()*12):e<=4?(19+rng()*10):(15+rng()*10));}
+      if(r<.38)pat=[[0,l,T()]];
+      else if(r<.66){const l2=(l+1+Math.floor(rng()*2))%3;pat=[[0,l,T()],[0,l2,T()]];}
+      else if(r<.86){const t1=T();pat=[[0,l,t1],[14,l,t1==='g'?'a':'g']];}
+      else{const s1=rng()<.5?0:2;pat=[[0,s1,T()],[8,1,T()],[16,2-s1,T()]];}
+      const len=Math.max(...pat.map(p=>p[0]));if(x+len>=b||bad(x,x+len))break;
+      pat.forEach(p=>arr.push({x:x+p[0],l:p[1],type:p[2],era:e}));n+=pat.length>1&&pat[1][0]===0?1:pat.length;
+      x+=len+14+rng()*(e<=2?4:1);}
+    if(n)S.chal.push({x0:c0-6,x1:x+2});
   }
   // 양자택일 문을 지나 22~27m 뒤 한쪽(정답 쪽일 수도, 오답 쪽일 수도)
-  for(const g of lg){if(rng()<.7){const side=rng()<.5?0:2,x=g.x+22+rng()*5;if(!arr.some(o=>Math.abs(o.x-x)<5)&&(gateDist(Math.ceil(x/CFG.spacing))-x)>12)arr.push({x,type:T(),l:side,era:g.era});}}
+  for(const g of lg){if(rng()<.4){const side=rng()<.5?0:2,x=g.x+22+rng()*5;if(!arr.some(o=>Math.abs(o.x-x)<5)&&(gateDist(Math.ceil(x/CFG.spacing))-x)>12)arr.push({x,type:T(),l:side,era:g.era});}}
   // 이벤트 구간 장애물: 올림피아 허들(세 줄 모두 점프 3번), 참호전(두 줄씩 막힌 장애물 밭)
   const nz=arr.length;
   for(const z of zones){
@@ -442,6 +455,7 @@ function genWorld(){
   S.lg=genLane();
   S.obst=genObstacles(S.lg);
   S.boxes=genBoxes(S.obst);
+  S.relics=genRelics();
 }
 function genBoxes(obst){
   // 아이템 상자: 퀴즈 게이트를 지나 25m 뒤에 한 줄, 홀수 구간은 첫 양자택일 문 12m 뒤에 한 줄 더
@@ -459,7 +473,7 @@ function newRacer(o){
     hair:0,hc:'#2b2118',skin:'#f2c9a0',back:0,trail:0,lane:1,lx:1,bi:0,li:0,lgSeen:0,lgPick:0,lgRight:0,cloth:0,mask:0,face:0,y:0,vy:0,slide:0,invuln:0,score:0,rank:1,itemT:0,tripTick:0,wrong:0,immune:0},o);
 }
 
-function buildRace(withMe,nBots){S.qStat={};S.gStat={};
+function buildRace(withMe,nBots){S.qStat={};S.gStat={};S._warn60=0;S._cdn=0;
   S.racers=[];S.me=null;S.feed=[];S.pops=[];S.parts=[];S.t=0;S.shake=0;
   genWorld();
   if(withMe){
@@ -500,6 +514,7 @@ function zoneFx(r,dt){
   const z=zoneAt(r.dist),me=r===S.me&&!r.isBot;
   if(me&&z&&S._zone!==z){S._zone=z;zoneTag(`${z.icon} ${z.name}: ${z.tip}`);}
   if(me&&!z)S._zone=null;
+  if(me&&S.chal){const ch=S.chal.find(c=>r.dist>c.x0-12&&r.dist<c.x0-10);if(ch&&S._chal!==ch){S._chal=ch;zoneTag('⚡ 도전 구간! 장애물이 몰려 와요');}}
   if(!z||r.state!=='run'||r.hurtT>0)return;
   const lane=Math.round(r.lx==null?r.lane:r.lx);
   if(z.type==='slow'||z.type==='plague'||z.type==='pad'){
@@ -559,6 +574,13 @@ function stepHuman(r,dt){
       if(Math.abs(dx)<34&&(VIEW!=='3d'||Math.abs(r.lx-b.l)<.6)){b.taken=true;giveItem(r);burst(PX,GROUND-60,'#ffe27a',14);break;}
     }
   }
+  // 유물 줍기 (사람마다 따로 기록)
+  if(S.relics&&r.state==='run'&&r.y<70){r.ri=r.ri||0;while(S.relics[r.ri]&&S.relics[r.ri].x<r.dist-1.5)r.ri++;
+    for(let i=r.ri;i<S.relics.length;i++){const q=S.relics[i];if(q.x>r.dist+1.2)break;
+      if(Math.abs(q.x-r.dist)<1.2&&Math.abs(r.lx-q.l)<.55&&!(r.relT&&r.relT[i])){(r.relT=r.relT||{})[i]=1;r.relics=(r.relics||0)+1;r.score+=5;
+        if(!r.isBot&&!r.remote){sfx('coin');burst(PX,GROUND-70,'#ffd23f',6);
+          if(r.relics%10===0){r.boostPow=Math.max(r.boostPow,2.2);r.boostT=Math.max(r.boostT,1.2);S.pops.push({t:0,text:`${q.ic} 유물 ${r.relics}개!`,sub:'가속 ▶▶',x:PX,y:GROUND-150,c:'#ffd23f',sc:'#8fdcff'});}}
+        else if(r.relics%10===0){r.boostPow=Math.max(r.boostPow,2.2);r.boostT=Math.max(r.boostT,1.2);}}}}
   // 장애물 충돌
   if(r.state==='run'&&r.hurtT<=0&&r.getupT<=0&&r.invuln<=0){
     for(const o of S.obst){
@@ -1601,6 +1623,11 @@ function drawGame3D(){
         emo(c,e.obs[1],ox+Math.sin(t*6+o.x)*3*s,y-131*s,64*s);
       }}});
   }
+  for(let i=0;i<(S.relics||[]).length;i++){const q=S.relics[i];if(me.relT&&me.relT[i])continue;const z=(q.x-D)*VZ;if(z<-3)continue;if(z>FAR)break;
+    L.push({z,f:()=>{const s=SS(z),CX=XO(z,s),y=GY(s),bx=CX+(q.l-1)*LANE*s,hv=(46+Math.sin(t*5+q.x)*6)*s;
+      c.fillStyle='rgba(0,0,0,.25)';c.beginPath();c.ellipse(bx,y+2*s,26*s,7*s,0,0,7);c.fill();
+      c.fillStyle='rgba(255,214,70,.45)';c.beginPath();c.arc(bx,y-hv,36*s,0,7);c.fill();c.strokeStyle='#ffd23f';c.lineWidth=Math.max(1.5,4*s);c.stroke();
+      emo(c,q.ic,bx,y-hv,56*s);}});}
   for(const b of S.boxes){
     if(b.taken)continue;
     const z=(b.x-D)*VZ;if(z<-3)continue;if(z>FAR)break;
@@ -1731,7 +1758,7 @@ function drawTeacherTimeline(){
   trackQuiz();
   const tc=$('#tc'),c=tc.getContext('2d'),W=tc.width,H=tc.height,t=performance.now()/1000;
   c.setTransform(1,0,0,1,0,0);c.fillStyle='#141936';c.fillRect(0,0,W,H);
-  const X0=24,X1=W-24,cw=(X1-X0)/9,GY0=420,xAt=m=>X0+(X1-X0)*clamp(m/FINISH,0,1);
+  const X0=24,X1=W-24,cw=(X1-X0)/9,GY0=300,xAt=m=>X0+(X1-X0)*clamp(m/FINISH,0,1);
   // 시대별 배경 칸
   for(let e=1;e<=9;e++){const info=ERAS[e-1],a=X0+(e-1)*cw;
     const g=c.createLinearGradient(0,40,0,GY0);g.addColorStop(0,info.sky[0]);g.addColorStop(1,info.sky[1]);c.fillStyle=g;c.fillRect(a,40,cw+1,GY0-40);
@@ -1767,7 +1794,7 @@ function drawTeacherTimeline(){
       const txt=fin?`🏁 결승 ${n}명`:`${n}명${qz?` · 💭 ${qz}`:''}`;c.font='14px Jua, sans-serif';c.textAlign='center';const w=c.measureText(txt).width+16;
       c.fillStyle=fin?'rgba(120,80,0,.85)':'rgba(30,24,60,.85)';c.beginPath();c.roundRect(gx-w/2,topY-24,w,22,9);c.fill();c.fillStyle='#fff';c.fillText(txt,gx,topY-13);}}
   // 퀴즈 현황판
-  const PY=468;c.fillStyle='#1d2350';c.fillRect(0,PY,W,H-PY);
+  const PY=346;c.fillStyle='#1d2350';c.fillRect(0,PY,W,H-PY);
   c.textAlign='left';c.font='18px Jua, sans-serif';c.fillStyle='#ffe27a';c.fillText('📊 퀴즈 문별 정답률',24,PY+22);
   const BX0=24,BX1=690,bw=(BX1-BX0)/CFG.gates,BT=PY+52,BB=H-46;
   for(let k=1;k<=CFG.gates;k++){const a=S.gStat&&S.gStat[k],x=BX0+(k-1)*bw;c.fillStyle='rgba(255,255,255,.07)';c.fillRect(x+3,BT,bw-6,BB-BT);
@@ -1775,14 +1802,15 @@ function drawTeacherTimeline(){
       c.fillStyle='#fff';c.font='12px Jua, sans-serif';c.textAlign='center';c.fillText(Math.round(rt*100)+'%',x+bw/2,BB-h-9);}
     c.fillStyle='#aab';c.font='11px Jua, sans-serif';c.textAlign='center';c.fillText('G'+k,x+bw/2,BB+12);if(k%2===1)emo(c,ERAS[eraOf(k)-1].icon,x+bw,BB+30,14);}
   // 많이 틀린 문제 TOP 3
-  const RX=712;c.textAlign='left';c.font='18px Jua, sans-serif';c.fillStyle='#ff9aa8';c.fillText('❗ 많이 틀린 문제 TOP 3',RX,PY+22);
-  const qs=Object.entries(S.qStat||{}).filter(([id,v])=>v.n>=2&&v.ok<v.n).map(([id,v])=>({q:(RAW_Q||[])[+id],v,rt:v.ok/v.n})).filter(o=>o.q).sort((a,b)=>a.rt-b.rt||b.v.n-a.v.n).slice(0,3);
+  const RX=712;c.textAlign='left';c.font='18px Jua, sans-serif';c.fillStyle='#ff9aa8';c.fillText('❗ 많이 틀린 문제 TOP 5',RX,PY+22);
+  const qs=Object.entries(S.qStat||{}).filter(([id,v])=>v.n>=2&&v.ok<v.n).map(([id,v])=>({q:(RAW_Q||[])[+id],v,rt:v.ok/v.n})).filter(o=>o.q).sort((a,b)=>a.rt-b.rt||b.v.n-a.v.n).slice(0,5);
   if(!qs.length){c.fillStyle='#8f93b8';c.font='15px Jua, sans-serif';c.fillText('아직 많이 틀린 문제가 없어요',RX,PY+60);}
-  qs.forEach((o,i)=>{const y=PY+44+i*80;c.fillStyle='rgba(255,255,255,.06)';c.beginPath();c.roundRect(RX,y,W-RX-20,72,10);c.fill();
+  const cut=(t,mw)=>{if(c.measureText(t).width<=mw)return t;while(t.length>2&&c.measureText(t+'…').width>mw)t=t.slice(0,-1);return t+'…';};
+  qs.forEach((o,i)=>{const y=PY+40+i*72,mw=W-RX-104;c.fillStyle='rgba(255,255,255,.06)';c.beginPath();c.roundRect(RX,y,W-RX-20,66,10);c.fill();
     c.fillStyle='#ff5d73';c.font='20px Jua, sans-serif';c.fillText(Math.round(o.rt*100)+'%',RX+10,y+22);c.fillStyle='#aab';c.font='12px Jua, sans-serif';c.fillText(`${o.v.n}명 중 ${o.v.ok}명`,RX+10,y+44);
-    c.fillStyle='#fff';c.font='14px Jua, sans-serif';const q=o.q[1],mw=W-RX-120;let ln=q;while(c.measureText(ln).width>mw*2&&ln.length>4)ln=ln.slice(0,-2);
-    let l1=ln,l2='';for(let k=ln.length;k>0;k--){if(c.measureText(ln.slice(0,k)).width<=mw){l1=ln.slice(0,k);l2=ln.slice(k);break;}}if(ln!==q)l2+='…';
-    c.fillText(l1,RX+80,y+18);if(l2)c.fillText(l2,RX+80,y+36);c.fillStyle='#4cd38a';c.fillText('정답: '+o.q[2],RX+80,y+58);});
+    c.fillStyle='#fff';c.font='14px Jua, sans-serif';c.fillText(cut(o.q[1],mw),RX+80,y+16);
+    c.fillStyle='#4cd38a';c.font='14px Jua, sans-serif';c.fillText(cut('정답: '+o.q[2],mw),RX+80,y+35);
+    c.fillStyle='#b9bcdc';c.font='12px Jua, sans-serif';c.fillText(cut(o.q[4]||'',mw),RX+80,y+54);});
 }
 /* ===== 교사 화면: 스포츠 중계 카메라 ===== */
 function camPick(){
@@ -1900,7 +1928,7 @@ function drawSide(){
    const h=sk.length?'<h3>🤔 양자택일 안 고른 친구</h3>'+sk.map(r=>`<div class="skr"><span></span><b>${r.lgSeen-r.lgPick}번</b></div>`).join(''):'';
    const box=$('#skipBox');if(box.dataset.h!==h){box.dataset.h=h;box.innerHTML=h;[...box.querySelectorAll('.skr span')].forEach((e,i)=>e.textContent=sk[i].name);}}
   {const sig=(S.feedN||0)+':'+S.feed.length;if(sig!==S._fsig){S._fsig=sig;const box=$('#feed');box.innerHTML=S.feed.slice(0,10).map(()=>`<div></div>`).join('');[...box.children].forEach((d,i)=>{d.textContent=S.feed[i];if(i===0)d.classList.add('new');});}}
-  $('#tTimer').textContent=S.phase==='count'?'READY':fmt(S.t);
+  {const left=Math.max(0,CFG.timeLimit-S.t),el=$('#tTimer');el.textContent=S.phase==='count'?'READY':S.phase==='race'?'⏱ '+fmt(left):fmt(S.t);el.style.color=(S.phase==='race'&&left<=60)?'#ff6b7d':'';}
 }
 
 /* ================== 네트워크(Firebase Realtime Database) ================== */
@@ -2132,6 +2160,9 @@ function frame(now){
       if(!Net.on&&S.cd<=0){S.phase='race';S.t=0;}
     }else if(S.phase==='race'){
       S.t+=dt;
+      {const left=CFG.timeLimit-S.t;   // 남은 시간 알림
+        if(left<=60&&!S._warn60){S._warn60=1;if(view==='teacher')popCard('#tHit','⏱ 1분 남았어요!','시간이 끝나면 간 거리 순으로 순위가 정해져요','safe');else if(view==='game'&&S.me&&S.me.finishT==null){zoneTag('⏱ 1분 남았어요! 끝까지 달려요');sfx('tick');}}
+        if(left<=10&&left>0&&view==='game'&&S.me&&S.me.finishT==null){const n=Math.ceil(left);if(S._cdn!==n){S._cdn=n;zoneTag(`⏱ ${n}초 남았어요!`);}}}
       for(const r of S.racers)if(!r.remote)stepRacer(r,dt);
       rankAll();
       if(Net.on){
@@ -2239,6 +2270,10 @@ $('#tStart').onclick=()=>{
   if(S.phase==='idle'||S.phase==='end'){buildRace(false,28);}
   S.phase='count';S.cd=3.99;sfx('tick');
 };
+$('#tEnd').onclick=()=>{const b=$('#tEnd');if(S.phase!=='race')return;
+  if(!b._arm){b._arm=1;b.textContent='한 번 더 누르면 종료';setTimeout(()=>{b._arm=0;b.textContent='🏁 종료';},2500);return;}
+  b._arm=0;b.textContent='🏁 종료';
+  if(Net.on&&Net.role==='teacher'){if(!Net._ending){Net._ending=true;Net.setEnd();}}else endRace();};
 $('#tReset').onclick=()=>{
   if(Net.on&&Net.role==='teacher'){Net.newRound();return;}
   buildRace(false,28);S.phase='idle';drawTeacher();drawSide();
